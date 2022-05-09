@@ -1,6 +1,6 @@
 # Oilspill
 
-Tooking at the decompiled C in `ghidra`, it is immeadiately obvious this is a format string attack.
+Taking at the decompiled C in `ghidra`, it is immeadiately obvious this is a format string attack.
 
 ```c
 undefined8 main(undefined8 param_1,undefined8 param_2) {

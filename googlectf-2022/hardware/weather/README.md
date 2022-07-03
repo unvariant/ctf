@@ -3,9 +3,13 @@
 ### Our DYI Weather Station is fully secure! No, really! Why are you laughing?! OK, to prove it we're going to put a flag in the internal ROM, give you the source code, datasheet, and network access to the interface.
 ******
 Their weather station is running on a 8051 microcontroller, and the code is stored on a programmable eeprom module. We are provided a `firmware.c` file, and a datasheet that describes the usage of the peripheral devices attached to their weather station. We are given read+write access to ports 101, 108, 110, 111, and 119. Although writing to these ports does nothing.
+
 ![peripherals.png](static/peripherals.png)
+
 The flag is stored in FLAGROM module and only accessible through ports 0xEE and 0xEF
+
 ![FLAGROM_desc.png](static/FLAGROM_desc.png)
+
 The firmware file itself never actually reads or writes to the FLAGROM registers, so in order to leak the flag we have to somehow overwrite some of their firmware code.
 
 The format of the commands to read or write to the ports is:
@@ -158,7 +162,9 @@ i2c status: transaction completed / ready
 -end
 ```
 That is when I realized that device 33 was the eeprom module.
+
 ![eeprom_read_desc.png](static/eeprom_read_desc.png)
+
 To make sure that this was really the eeprom I dumped as much data from the eeprom as possible and attempted to decompile it using ghidra.
 ```python
 from pwn import *
@@ -187,15 +193,23 @@ finally:
     print("last: %d", i)
 ```
 ghidra output:
+
 ![firmware_disasm.png](static/firmware_disasm.png)
+
 Ok so device 33 is confirmed to be the eeprom. The datasheet tells us how the eeprom data can be reprogrammed:
+
 ![programming_eeprom.png](static/programming_eeprom.png)
+
 Unfortunately it only gives us the ability to clear bits, not to set them, and this prevents us from rewriting the firmware code with an arbitrary program. While looking through the ghidra I noticed an area of the eeprom from address `0A02h` to `0FFFh` that was all `0xFF`s.
+
 ![ones_area.png](static/ones_area.png)
+
 Because this area contained only set bits we can clear certain bits and write arbitrary code here. But first we need to find a way to force the main program to jump into our malicious code.
 I know `arm`, `x86_64`, and `6502` assembly, but have never worked with `8051` assembly, so I found a [opcode table](https://www.keil.com/support/man/docs/is51/is51_opcodes.htm) online. After looking through it decided that the easiest way to do this was to overwrite part of the main program to a `LJMP` or `LCALL` instruction, which both branch to an absolute 16 bit address.
+
 ![ljmp_desc.png](static/ljmp_desc.png)
 ![lcall_desc.png](static/lcall_desc.png)
+
 program to find possible locations to hijack:
 ```python
 def valid(a, b):
@@ -224,7 +238,9 @@ print(ps)
 ['0x19', '0x19', '0x95', '0xa4', '0xa6', '0xbf', '0xce', '0xd0', '0xe9', '0xeb', '0xf0', '0xfa', '0xfa', '0xfc', '0x124', '0x126', '0x12a', ... ]
 ```
 Not all the returned addresses can be hijacked because some of them do not start at the beginning of an instruction. I finally found an instruction to overwrite at address `E9h`.
+
 ![overwrite.png](static/overwrite.png)
+
 Address `E9h` contains the bytes `22h AFh 82h`.
 binary:
 ```
@@ -235,7 +251,9 @@ clearing certain bits rewrites it to:
 00000010 00001010 00000010
 ```
 `02h` is the opcode for `LJMP` and the jmp address is the word after the first byte `0A02h`, which is where our code to output the flag will be. The instruction that is being overwritten is final `RET` inside the `i2c_read` function.
+
 ![i2c_read.png](static/i2c_read.png)
+
 If we want to trigger the jmp to our malicious code the firmware first must call `i2c_read` and when it tries to return it jmps to our injected code (now its just like a ROP attack XD).
 
 Now we have the ability to hijack the firmware program and redirect it to our own code, we need to actually write a program that reads the FLAGROM and dumps it to stdout. I spent some time looking for `8051` assemblers and I found three, one I never figured out how to build because it kept throwing errors during `make` and the other two I could not find the download links. In the end I decided to just write the machine code myself because it was pretty simple.

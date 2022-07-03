@@ -16,7 +16,9 @@ The format of the commands to read or write to the ports is:
 | command operation | port                  | request length    | data                                            |
 |-------------------|-----------------------|-------------------|-------------------------------------------------|
 | `r` or `w`        | port number as string | req len as string | if mode is `w` the bytes to write into the port |
+
 Read 64 bytes from port 101: `r 101 64`
+
 Write 5 bytes to port 101: `w 101 5 16 34 78 90 20`
 
 

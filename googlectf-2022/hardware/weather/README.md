@@ -229,7 +229,7 @@ As the eeprom only allows bits to be cleared and does not allow bits to be set, 
 
 (byte `a` contains byte `b` if the bits that are set in byte `b` are also set in byte `a`. This can be easily checked using bitwise operators, e.g. if (byte `a`) | (byte `b`) == (byte `a`) then byte `a` is guaranteed to contain byte `b`.)
 
-This is important because if byte `a` contains byte `b` certain bits can be cleared to make byte `a` == byte `b`. The third byte does not matter because as long as the branch instruction is able to jmp to any address in the range `0A00h` to `0AFFh` the exploit will work. If bytes are found that meet those requirements then those bytes can be poked to become a `LJMP` or `LCALL` to `0AXXh` where the malicious code would be.
+This is important because if byte `a` contains byte `b` certain bits can be cleared to make byte `a` == byte `b`. The third byte does not matter because as long as the branch instruction is able to jmp address `0AXXh` the exploit will work. If bytes are found that meet those requirements then those bytes can be poked to become a `LJMP` or `LCALL` to `0AXXh` where the malicious code would be.
 
 program to find possible locations to hijack:
 ```python
@@ -238,7 +238,7 @@ def valid(a, b):
     return a | b == a
 
 # 02h is the opcode for LJMP
-# 12h is the opcode for LCALl
+# 12h is the opcode for LCALL
 ops = [0x02, 0x12]
 
 # firmware bytes extracted from the eeprom

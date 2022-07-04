@@ -8,13 +8,12 @@ d = f.read()
 f.close()
 
 ps = []
-for i in range(len(d)-2):
+for i in range(len(d)-1):
     b = d[i]
     if d[i:i+3] == b'\xff\xff\xff':
         break
     for op in ops:
         h = d[i + 1]
-        l = d[i + 2]
         if valid(b, op) and valid(h, 0x0A):
             ps.append(hex(i))
 

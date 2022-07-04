@@ -22,7 +22,7 @@ Read 64 bytes from port 101: `r 101 64`
 Write 5 bytes to port 101: `w 101 5 16 34 78 90 20`
 
 
-I discovered the bug in their program by accident. I forgot to put a space between the port number and the request length and I got a `"i2c status: error - device not found\n"` error. I immeadiately knew that I had discovered something because the only two statuses that should be possible for the device to return (assuming correct command format) are `"i2c status: transaction completed / ready\n"` or `"-err: port invalid or not allowed\n"`. Taking a second look at their port validation code I realized what the bug was.
+I discovered the bug in their program by accident. I forgot to put a space between the port number and the request length and I got a `"i2c status: error - device not found\n"` error. I immediately knew that I had discovered something because the only two statuses that should be possible for the device to return (assuming correct command format) are `"i2c status: transaction completed / ready\n"` or `"-err: port invalid or not allowed\n"`. Taking a second look at their port validation code I realized what the bug was.
 
 ```c
 const char *ALLOWED_I2C[] = {
@@ -141,7 +141,7 @@ i2c status: transaction completed / ready
 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
 -end
 ```
-but no such luck. Reading from device 33 yields non-ascii data so it is definitely not the FLAGROM module. Strangely reading from this device returns 64 bytes of data followed by 64 bytes of zeros. While experimenting with reading and writing to this device I noticed that writing a `1` to the port and then reading from it returned different data than not writing anything and reading.
+but no such luck. Reading from device 33 yields non-ascii data so it is definitely not the FLAGROM module. Strangely reading from this device returns 64 bytes of data followed by 64 bytes of `0`. While experimenting with reading and writing to this device I noticed that writing a `1` to the port and then reading from it returned different data than not writing anything and reading.
 ```
 > nc weather.2022.ctfcompetition.com 1337
 == proof-of-work: disabled ==
@@ -167,7 +167,7 @@ That is when I realized that device 33 was the eeprom module.
 
 ![eeprom_read_desc.png](static/eeprom_read_desc.png)
 
-To make sure that this was really the eeprom I dumped as much data from the eeprom as possible and attempted to decompile it using ghidra.
+The reason the returned data changed when a `1` was written into device 33 was because it was selecting a different page to read from, and 64 bytes of data followed by 64 bytes of `0` were always returned because the eeprom only allowed reading up to 64 bytes. To make sure that this was really the eeprom I dumped as much data from the eeprom as possible and attempted to decompile it using ghidra.
 ```python
 from pwn import *
 io = remote("weather.2022.ctfcompetition.com", 1337)
@@ -202,44 +202,65 @@ Ok so device 33 is confirmed to be the eeprom. The datasheet tells us how the ee
 
 ![programming_eeprom.png](static/programming_eeprom.png)
 
-Unfortunately it only gives us the ability to clear bits, not to set them, and this prevents us from rewriting the firmware code with an arbitrary program. While looking through the ghidra I noticed an area of the eeprom from address `0A02h` to `0FFFh` that was all `0xFF`s.
+Unfortunately it only gives us the ability to clear bits, not to set them, and this prevents us from rewriting the firmware code with an arbitrary program. While looking through the ghidra I noticed an area of the eeprom from address `0A02h` to `0FFFh` that was all `FFh`s.
 
 ![ones_area.png](static/ones_area.png)
 
-Because this area contained only set bits we can clear certain bits and write arbitrary code here. But first we need to find a way to force the main program to jump into our malicious code.
-I know `arm`, `x86_64`, and `6502` assembly, but have never worked with `8051` assembly, so I found a [opcode table](https://www.keil.com/support/man/docs/is51/is51_opcodes.htm) online. After looking through it decided that the easiest way to do this was to overwrite part of the main program to a `LJMP` or `LCALL` instruction, which both branch to an absolute 16 bit address.
+Because this area contained only set bits we can clear certain bits and write arbitrary code here. But first we need to find a way to force the main program to jump into our malicious code. I know `arm`, `x86_64`, and `6502` assembly, but have never worked with `8051` assembly, so I found a [opcode table](https://www.keil.com/support/man/docs/is51/is51_opcodes.htm) online. After looking through it decided that the easiest way to do this was to overwrite part of the main program to a `LJMP` or `LCALL` instruction, which both branch to an absolute 16 bit address.
 
 ![ljmp_desc.png](static/ljmp_desc.png)
 ![lcall_desc.png](static/lcall_desc.png)
 
+| INSTR | byte 1 | byte 2            | byte 3            |
+|-------|--------|-------------------|-------------------|
+| LJMP  | `02h`   | address bits 15..8 | address bits 7..0 |
+| LCALL | `12h`   | address bits 15..8 | address bits 7..0 |
+
+
+As the eeprom only allows bits to be cleared and does not allow bits to be set, 2 bytes need to be found within the program that meet specific requirements:
+
+1. byte 1 must contain `02h` or `12h`
+2. byte 1 must fall on an instruction boundary (e.g. it must be the start of already existing instruction)
+3. byte 2 must contain `0Ah`
+
+(byte `a` contains byte `b` if the bits that are set in byte `b` are also set in byte `a`. This can be easily checked using bitwise operators, e.g. if (byte `a`) | (byte `b`) == (byte `a`) then byte `a` is guaranteed to contain byte `b`.)
+
+This is important because if byte `a` contains byte `b` certain bits can be cleared to make byte `a` == byte `b`. The third byte does not matter because as long as the branch instruction is able to jmp to any address in the range `0A00h` to `0AFFh` the exploit will work. If bytes are found that meet those requirements then those bytes can be poked to become a `LJMP` or `LCALL` to `0AXXh` where the malicious code would be.
+
 program to find possible locations to hijack:
 ```python
+# function to check if byte a contains byte b
 def valid(a, b):
     return a | b == a
 
+# 02h is the opcode for LJMP
+# 12h is the opcode for LCALl
 ops = [0x02, 0x12]
 
+# firmware bytes extracted from the eeprom
+# in an earlier program
 f = open("firmware.bin", "rb")
 d = f.read()
 f.close()
 
 ps = []
-for i in range(len(d)-2):
+for i in range(len(d)-1):
     b = d[i]
+    # stop when the FFh region is reached
     if d[i:i+3] == b'\xff\xff\xff':
         break
     for op in ops:
         h = d[i + 1]
-        l = d[i + 2]
         if valid(b, op) and valid(h, 0x0A):
             ps.append(hex(i))
 
 print(ps)
 ```
 ```
-['0x19', '0x19', '0x95', '0xa4', '0xa6', '0xbf', '0xce', '0xd0', '0xe9', '0xeb', '0xf0', '0xfa', '0xfa', '0xfc', '0x124', '0x126', '0x12a', ... ]
+['0x19', '0x19', '0x95', '0xa4', '0xa6', '0xbf', '0xce', '0xd0', '0xe9', '0xeb', ... ]
 ```
-Not all the returned addresses can be hijacked because some of them do not start at the beginning of an instruction. I finally found an instruction to overwrite at address `E9h`.
+
+Not all the returned addresses can be hijacked because the code cannot check whether or not byte 1 actually starts at an instruction boundary, so not all of the returned addresses start at instruction boundaries. I finally found bytes to overwrite at address `E9h`.
 
 ![overwrite.png](static/overwrite.png)
 
@@ -256,7 +277,7 @@ clearing certain bits rewrites it to:
 
 ![i2c_read.png](static/i2c_read.png)
 
-If we want to trigger the jmp to our malicious code the firmware first must call `i2c_read` and when it tries to return it jmps to our injected code (now its just like a ROP attack XD).
+If we want to trigger the jmp to our malicious code the `RET` must be overwritten then firmware first must call `i2c_read` and when it tries to return it jmps to our injected code (now its just like a ROP attack XD).
 
 Now we have the ability to hijack the firmware program and redirect it to our own code, we need to actually write a program that reads the FLAGROM and dumps it to stdout. I spent some time looking for `8051` assemblers and I found three, one I never figured out how to build because it kept throwing errors during `make` and the other two I could not find the download links. In the end I decided to just write the machine code myself because it was pretty simple.
 ```x86asm

@@ -53,7 +53,11 @@ bool is_port_allowed(const char *port) {
 }
 ```
 
-Their `is_port_allowed` function only compares the port strings as long as the chars it is currently comparing are both not `NULL`. As soon as it sees a `NULL` byte it stops. This can be abused because suddenly this is a valid port: `"1112347\x00"`.
+Their `is_port_allowed` function only compares the port strings as long as the chars it is currently comparing are both not `NULL`.
+```c
+    while (*pa && *pb) {
+```
+As soon as it sees a `NULL` byte it stops. This can be abused because suddenly this is a valid port: `"1112347\x00"`.
 For example when comparing the port strings `"111\x00` and `"1112347\x00"` it only checks the first three chars because when it gets to the fourth character it sees a `NULL` byte and returns `true` for port allowed.
 ```c
 uint8_t str_to_uint8(const char *s) {

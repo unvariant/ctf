@@ -15,3 +15,5 @@ Then rewrite the `PATH` environment variable to search the current directory fir
 export PATH=".:$PATH"
 ```
 Finally execute the given script to get a root shell and leak the flag.
+
+# Flag: `picoCTF{Power_t0_man!pul4t3_3nv_302623e9}`

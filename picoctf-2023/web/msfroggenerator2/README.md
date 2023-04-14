@@ -15,3 +15,5 @@ Solution:
 In all seriousness, our solution used a bug in traefik that allows semicolons as valid url parameter delimiters, while
 the nginx and nodejs url parsing libraries only treats ampersand as the url parameter delimiter, which allows us to control
 the url parameter and where the bot redirects to.
+
+# Flag: `picoCTF{th3_fsf_mak3s_th3_b3st_s0ftwar3_1dced559}`

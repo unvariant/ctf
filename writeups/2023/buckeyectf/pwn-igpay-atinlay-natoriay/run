@@ -1,0 +1,6 @@
+#!/bin/sh
+
+FLAG="WHAT THE FUCK DID YOU DO"
+
+./vuln \
+    || printf "You crashed my program :(\n$FLAG"
